@@ -1,12 +1,7 @@
 """
-Imputación de atributos vacíos en pacientes_validos.csv
-
 Una sola técnica, dos reglas:
   - Columnas numéricas (EDAD, TALLA, PESO, IMC, T4L, TSH) -> mediana.
   - Columnas binarias/categóricas (SEXO, comorbilidades, DX POR IMC) -> moda.
-
-No se imputan: identificadores/fecha (ID, NSS, FECHA), texto libre (OTROS)
-ni las etiquetas (NODULO BENIGNO, CANCER DE TIROIDES).
 """
 
 import pandas as pd
