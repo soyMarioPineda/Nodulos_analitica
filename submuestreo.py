@@ -86,6 +86,17 @@ def main():
     parser.add_argument("--semilla", type=int, default=42)
     parser.add_argument("--sin-agrupar", action="store_true",
                         help="no agrupar por paciente (permite fuga entre train y test)")
+    parser.add_argument("--entrenar", action="store_true",
+                        help="entrenar la red en cada fold y mostrar el accuracy")
+    parser.add_argument("--modelo", default="vgg19", choices=["vgg19", "resnet18"])
+    parser.add_argument("--epocas", type=int, default=10)
+    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--paciencia", type=int, default=2)
+    parser.add_argument("--val", type=float, default=0.15,
+                        help="fraccion del submuestreo usada como validacion")
+    parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--sin-preentrenado", action="store_true")
     args = parser.parse_args()
 
     if args.N < 0.20 or args.N > 0.80:
@@ -95,7 +106,12 @@ def main():
     print("Imagenes:", len(datos), "| Pacientes:", datos["paciente"].nunique())
     resumen("total", datos["etiqueta"])
 
-    registros = []
+    if args.entrenar:
+        from entrenamiento import entrenar_y_evaluar   # solo se necesita torch si se entrena
+    clases = sorted(datos["etiqueta"].unique())
+    pacientes_por_ruta = dict(zip(datos["ruta"], datos["paciente"]))
+
+    registros, resultados = [], []
     for run in range(1, args.runs + 1):
         semilla_run = args.semilla + run
         particion = particion_kfold(datos, args.folds, semilla_run, not args.sin_agrupar)
@@ -109,6 +125,15 @@ def main():
             resumen("sub", subYTr)
             resumen("test", YTe)
 
+            if args.entrenar:
+                pacientesTr = np.array([pacientes_por_ruta[r] for r in subXTr])
+                acc, cmat = entrenar_y_evaluar(subXTr, subYTr, pacientesTr, XTe, YTe,
+                                               clases, args, semilla_run * 100 + kfold)
+                print(f"  Accuracy en Fold {kfold}: {acc:.4f}")
+                print("  Matriz de confusion (filas=real, columnas=prediccion):", clases)
+                print("  " + str(cmat).replace("\n", "\n  "))
+                resultados.append({"run": run, "fold": kfold, "accuracy": acc})
+
             for conjunto, X, Y in (("train", XTr, YTr), ("sub", subXTr, subYTr), ("test", XTe, YTe)):
                 registros += [{"run": run, "fold": kfold, "conjunto": conjunto,
                                "ruta": x, "etiqueta": y} for x, y in zip(X, Y)]
@@ -117,6 +142,16 @@ def main():
     salida = os.path.join(CARPETA_SALIDA, f"folds_N{round(args.N * 100)}.csv")
     pd.DataFrame(registros).to_csv(salida, index=False, encoding="utf-8-sig")
     print("\nGuardado en:", salida)
+
+    if resultados:
+        tabla = pd.DataFrame(resultados)
+        print(f"\nACCURACY POR FOLD (N = {args.N:.0%}, modelo = {args.modelo})")
+        for _, fila in tabla.iterrows():
+            print(f"  Run {fila['run']:.0f} - Fold {fila['fold']:.0f}: {fila['accuracy']:.4f}")
+        print(f"  Promedio: {tabla['accuracy'].mean():.4f} +/- {tabla['accuracy'].std():.4f}")
+        salida_acc = os.path.join(CARPETA_SALIDA, f"accuracy_N{round(args.N * 100)}_{args.modelo}.csv")
+        tabla.to_csv(salida_acc, index=False)
+        print("Guardado en:", salida_acc)
 
 
 if __name__ == "__main__":
